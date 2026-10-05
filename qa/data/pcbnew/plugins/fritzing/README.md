@@ -6,7 +6,7 @@
   copied from https://github.com/fritzing/fritzing-parts (commit 27535f2f). Licensed
   CC BY-SA 3.0.
 - `synthetic.fzz`: a hand-written sketch with two bundled custom parts, a rotated through-hole
-  part, a bottom-side SMD part, a rectangular board and a schematic ground symbol.
+  part, a bottom-side SMD part, a generated DIP, a rectangular board and a schematic ground symbol.
 
 Expected positions for the RFID board come from the Gerber, drill and pick-and-place files that
 Fritzing exported for this sketch, published in the same repository.

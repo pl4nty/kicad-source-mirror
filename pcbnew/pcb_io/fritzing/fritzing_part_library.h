@@ -44,6 +44,8 @@
  *    the FRITZING_PARTS_PATH environment variable, a "fritzing-parts" folder next to the
  *    sketch, and the default install locations of Fritzing.
  *
+ * Parts that Fritzing generates on the fly (pin headers, SIPs, DIPs) are recreated.
+ *
  * A parts root is a folder laid out like the fritzing-parts repository: core/, contrib/,
  * user/ and obsolete/ hold .fzp files and svg/<folder>/pcb/ holds the footprint images.
  */
@@ -53,11 +55,15 @@ public:
     /// Name of the load property holding extra parts roots, separated by ';'.
     static constexpr const char* PARTS_PATH_PROPERTY = "fritzing_parts_path";
 
+    /// Name of the load property that, when "0", searches only the roots it is given and the
+    /// sketch: not the environment, the sketch's folder or Fritzing's install locations.
+    static constexpr const char* SEARCH_DEFAULTS_PROPERTY = "fritzing_search_default_paths";
+
     /// Environment variable holding extra parts roots, separated by the platform path separator.
     static constexpr const char* PARTS_PATH_ENV = "FRITZING_PARTS_PATH";
 
     FRITZING_PART_LIBRARY( const FRITZING::SKETCH& aSketch, const wxString& aSketchDir,
-                           const wxString& aExtraRoots );
+                           const wxString& aExtraRoots, bool aSearchDefaults = true );
 
     /// The definition of an instance's part, or nullptr if it cannot be found.
     const FRITZING::PART* FindPart( const FRITZING::INSTANCE& aInstance );
@@ -79,6 +85,7 @@ private:
     std::map<wxString, std::optional<FRITZING::PART>> m_cache;            ///< By moduleId.
     std::map<wxString, wxString>                      m_bundledFzp;       ///< moduleId -> file.
     std::map<wxString, std::map<wxString, wxString>>  m_rootIndex;        ///< Root -> moduleId -> path.
+    std::map<wxString, std::string>                   m_generatedSvgs;    ///< PCB image -> SVG.
 };
 
 #endif // FRITZING_PART_LIBRARY_H_

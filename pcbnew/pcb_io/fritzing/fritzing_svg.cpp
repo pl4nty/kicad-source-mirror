@@ -53,6 +53,9 @@ bool FRITZING_SVG::Load( const std::string& aSvg )
 
     m_doc = std::make_unique<wxXmlDocument>();
 
+    // Fritzing's TextUtils::isIllustratorFile
+    m_illustrator = aSvg.find( "Generator: Adobe Illustrator" ) != std::string::npos;
+
     if( !m_doc->Load( stream ) || !m_doc->GetRoot() || m_doc->GetRoot()->GetName() != wxS( "svg" ) )
     {
         m_doc.reset();
@@ -63,7 +66,7 @@ bool FRITZING_SVG::Load( const std::string& aSvg )
 }
 
 
-bool FRITZING_SVG::ParseLength( const wxString& aLength, double& aInches )
+bool FRITZING_SVG::ParseLength( const wxString& aLength, double& aInches, bool aIllustrator )
 {
     wxString str = aLength;
     str.Trim().Trim( false );
@@ -100,7 +103,11 @@ bool FRITZING_SVG::ParseLength( const wxString& aLength, double& aInches )
         aInches = value / 72.0;
     else if( unit == wxS( "pc" ) )
         aInches = value / 6.0;
-    else if( unit.IsEmpty() || unit == wxS( "px" ) )
+    else if( unit == wxS( "mil" ) )
+        aInches = value / 1000.0;
+    else if( unit == wxS( "px" ) )
+        aInches = value / ( aIllustrator ? 72.0 : FRITZING::SCENE_DPI );
+    else if( unit.IsEmpty() )
         aInches = value / FRITZING::SCENE_DPI;
     else
         return false;
@@ -143,7 +150,7 @@ bool FRITZING_SVG::GetSizeInches( double& aWidth, double& aHeight ) const
                 wxString str;
 
                 if( root->GetAttribute( aAttr, &str ) && !str.Contains( wxS( "%" ) )
-                    && ParseLength( str, aResult ) && aResult > 0 )
+                    && ParseLength( str, aResult, m_illustrator ) && aResult > 0 )
                 {
                     return true;
                 }

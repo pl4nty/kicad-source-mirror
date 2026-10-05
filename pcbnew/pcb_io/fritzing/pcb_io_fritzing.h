@@ -87,6 +87,7 @@ private:
     void computeOrigin();
     void buildNets();
     void collectTraceEnds();
+    void assignGraphicNets();
 
     void importTrace( const FRITZING::INSTANCE& aInst, const FRITZING::VIEW& aView );
     void importVia( const FRITZING::INSTANCE& aInst, const FRITZING::VIEW& aView );

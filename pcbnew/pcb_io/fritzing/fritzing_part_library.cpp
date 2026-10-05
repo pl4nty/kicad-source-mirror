@@ -18,6 +18,7 @@
  */
 
 #include "fritzing_part_library.h"
+#include "fritzing_generated_parts.h"
 #include "fritzing_parser.h"
 
 #include <wx/dir.h>
@@ -43,7 +44,7 @@ static wxString fileNameOf( const wxString& aPath )
 
 
 FRITZING_PART_LIBRARY::FRITZING_PART_LIBRARY( const SKETCH& aSketch, const wxString& aSketchDir,
-                                              const wxString& aExtraRoots ) :
+                                              const wxString& aExtraRoots, bool aSearchDefaults ) :
         m_sketch( aSketch )
 {
     for( const auto& [name, data] : aSketch.bundledFiles )
@@ -61,6 +62,9 @@ FRITZING_PART_LIBRARY::FRITZING_PART_LIBRARY( const SKETCH& aSketch, const wxStr
 
     while( extra.HasMoreTokens() )
         addRoot( extra.GetNextToken() );
+
+    if( !aSearchDefaults )
+        return;
 
     wxString env;
 
@@ -240,6 +244,18 @@ const PART* FRITZING_PART_LIBRARY::FindPart( const INSTANCE& aInstance )
     if( !path.IsEmpty() )
         result = loadFzpFile( path );
 
+    if( !result )
+    {
+        PART        part;
+        std::string svg;
+
+        if( GenerateFritzingPart( aInstance.moduleIdRef, part, svg ) )
+        {
+            m_generatedSvgs[part.pcbImage] = std::move( svg );
+            result = std::move( part );
+        }
+    }
+
     return result ? &*result : nullptr;
 }
 
@@ -251,6 +267,12 @@ bool FRITZING_PART_LIBRARY::LoadPcbSvg( const PART& aPart, std::string& aSvg )
 
     wxString image = aPart.pcbImage;
     image.Replace( wxS( "\\" ), wxS( "/" ) );
+
+    if( auto generated = m_generatedSvgs.find( aPart.pcbImage ); generated != m_generatedSvgs.end() )
+    {
+        aSvg = generated->second;
+        return true;
+    }
 
     // Bundled images are stored flat as e.g. "svg.pcb.foo.svg".
     wxString bundledName = wxS( "svg." ) + image;
@@ -302,5 +324,6 @@ bool FRITZING_PART_LIBRARY::LoadPcbSvg( const PART& aPart, std::string& aSvg )
             return true;
     }
 
-    return false;
+    // Stock parts such as DIP ICs reference images Fritzing generates on the fly.
+    return GenerateFritzingPcbSvg( image, aSvg );
 }

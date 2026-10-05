@@ -80,11 +80,13 @@ public:
 
     /**
      * Parse an SVG length, e.g. "0.1in", "2.54mm" or "9" (pixels at 90 DPI), into inches.
+     * Like Fritzing, "px" lengths are taken at 72 DPI in files made by Adobe Illustrator.
      */
-    static bool ParseLength( const wxString& aLength, double& aInches );
+    static bool ParseLength( const wxString& aLength, double& aInches, bool aIllustrator = false );
 
 private:
     std::unique_ptr<wxXmlDocument> m_doc;
+    bool                           m_illustrator = false;
 };
 
 #endif // FRITZING_SVG_H_

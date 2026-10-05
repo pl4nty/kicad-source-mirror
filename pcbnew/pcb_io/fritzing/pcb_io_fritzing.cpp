@@ -32,6 +32,7 @@
 #include <pcb_text.h>
 #include <pcb_track.h>
 #include <reporter.h>
+#include <geometry/shape.h>
 #include <lib_id.h>
 #include <math/util.h>
 #include <import_gfx/graphics_importer_pcbnew.h>
@@ -43,6 +44,7 @@
 #include <ranges>
 
 #include <wx/filename.h>
+#include <wx/regex.h>
 #include <wx/translation.h>
 
 using namespace FRITZING;
@@ -125,6 +127,7 @@ void PCB_IO_FRITZING::loadBoard( const wxString& aFileName, BOARD& aBoard, bool 
         THROW_IO_ERRORF( _( "'%s' is not a valid Fritzing sketch." ), aFileName );
 
     wxString extraRoots;
+    bool     searchDefaults = true;
 
     if( m_props )
     {
@@ -132,10 +135,15 @@ void PCB_IO_FRITZING::loadBoard( const wxString& aFileName, BOARD& aBoard, bool 
 
         if( it != m_props->end() )
             extraRoots = it->second.wx_str();
+
+        it = m_props->find( FRITZING_PART_LIBRARY::SEARCH_DEFAULTS_PROPERTY );
+
+        if( it != m_props->end() && it->second == "0" )
+            searchDefaults = false;
     }
 
     m_library = std::make_unique<FRITZING_PART_LIBRARY>( m_sketch, wxFileName( aFileName ).GetPath(),
-                                                         extraRoots );
+                                                         extraRoots, searchDefaults );
 
     buildBoard();
 
@@ -391,7 +399,7 @@ void PCB_IO_FRITZING::buildNets()
             {
                 copperItems[root]++;
 
-                if( moduleId != wxS( "ViaModuleID" ) )
+                if( moduleId != wxS( "ViaModuleID" ) && moduleId != wxS( "GroundPlaneModuleID" ) )
                     pads[root].push_back( inst.title + wxS( "-Pad" ) + padNumber( connectorId ) );
             }
         }
@@ -456,7 +464,17 @@ void PCB_IO_FRITZING::computeOrigin()
         if( !pcb || mapLayer( pcb->layer ) == UNDEFINED_LAYER )
             continue;
 
-        if( pcb->layer == wxS( "board" ) && m_boardRectPx.GetWidth() <= 0 )
+        // Older board parts (e.g. Arduino shields) sit on the silkscreen layer but carry a
+        // "board" layer in their image.
+        bool isBoard = pcb->layer == wxS( "board" );
+
+        if( !isBoard && !inst.path.StartsWith( wxS( ":" ) ) && inst.moduleIdRef != wxS( "WireModuleID" ) )
+        {
+            const PART* part = m_library->FindPart( inst );
+            isBoard = part && part->HasPcbLayer( wxS( "board" ) );
+        }
+
+        if( isBoard && m_boardRectPx.GetWidth() <= 0 )
         {
             double   width = 0, height = 0;
             wxString w = inst.Property( wxS( "width" ) );
@@ -582,11 +600,15 @@ void PCB_IO_FRITZING::buildBoard()
         else if( inst.properties.count( wxS( "shape" ) ) )
             importShapeSvg( std::string( inst.Property( wxS( "shape" ) ).utf8_str() ), inst, *pcb,
                             pcb->layer == wxS( "board" ) );
+        else if( moduleId == wxS( "GroundPlaneModuleID" ) && inst.properties.count( wxS( "svg" ) ) )
+            importShapeSvg( std::string( inst.Property( wxS( "svg" ) ).utf8_str() ), inst, *pcb, false );
         else if( moduleId.Contains( wxS( "RectanglePCBModuleID" ) ) )
             importRectangleBoard( inst, *pcb );
         else
             importPart( inst, *pcb );
     }
+
+    assignGraphicNets();
 
     if( m_boardRectPx.GetWidth() > 0 )
     {
@@ -594,6 +616,111 @@ void PCB_IO_FRITZING::buildBoard()
         VECTOR2I origin = toBoard( m_boardRectPx.GetOrigin() + VECTOR2D( 0, m_boardRectPx.GetHeight() ) );
         m_board->GetDesignSettings().SetAuxOrigin( origin );
         m_board->GetDesignSettings().SetGridOrigin( origin );
+    }
+}
+
+
+void PCB_IO_FRITZING::assignGraphicNets()
+{
+    // Copper logos carry no net in Fritzing, but are often wired into the circuit, e.g. a
+    // ground pour drawn as an image.  An SVG path becomes many shapes, so group the touching
+    // shapes and give each group the net of the copper it touches, if there is only one.  A
+    // group touching two nets (e.g. a coil antenna between two vias) keeps no net.
+    std::vector<PCB_SHAPE*> shapes;
+
+    for( BOARD_ITEM* item : m_board->Drawings() )
+    {
+        PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( item );
+
+        if( shape && IsCopperLayer( shape->GetLayer() ) && shape->GetNetCode() <= 0 )
+            shapes.push_back( shape );
+    }
+
+    if( shapes.empty() )
+        return;
+
+    std::vector<BOARD_CONNECTED_ITEM*> netted;
+
+    for( PCB_TRACK* track : m_board->Tracks() )
+    {
+        if( track->GetNetCode() > 0 )
+            netted.push_back( track );
+    }
+
+    for( FOOTPRINT* fp : m_board->Footprints() )
+    {
+        for( PAD* pad : fp->Pads() )
+        {
+            if( pad->GetNetCode() > 0 )
+                netted.push_back( pad );
+        }
+    }
+
+    std::vector<std::shared_ptr<SHAPE>> geoms( shapes.size() );
+    std::vector<BOX2I>                  boxes( shapes.size() );
+
+    for( size_t i = 0; i < shapes.size(); i++ )
+    {
+        geoms[i] = shapes[i]->GetEffectiveShape( shapes[i]->GetLayer() );
+        boxes[i] = shapes[i]->GetBoundingBox();
+    }
+
+    auto touches =
+            [&]( size_t a, size_t b )
+            {
+                return shapes[a]->GetLayer() == shapes[b]->GetLayer() && boxes[a].Intersects( boxes[b] )
+                       && geoms[a]->Collide( geoms[b].get() );
+            };
+
+    std::vector<int> group( shapes.size(), -1 );
+    int              groups = 0;
+
+    for( size_t seed = 0; seed < shapes.size(); seed++ )
+    {
+        if( group[seed] >= 0 )
+            continue;
+
+        std::vector<size_t> stack = { seed };
+        group[seed] = groups;
+
+        while( !stack.empty() )
+        {
+            size_t current = stack.back();
+            stack.pop_back();
+
+            for( size_t other = 0; other < shapes.size(); other++ )
+            {
+                if( group[other] < 0 && touches( current, other ) )
+                {
+                    group[other] = groups;
+                    stack.push_back( other );
+                }
+            }
+        }
+
+        groups++;
+    }
+
+    std::vector<std::set<NETINFO_ITEM*>> groupNets( groups );
+
+    for( size_t i = 0; i < shapes.size(); i++ )
+    {
+        PCB_LAYER_ID layer = shapes[i]->GetLayer();
+
+        for( BOARD_CONNECTED_ITEM* other : netted )
+        {
+            if( other->IsOnLayer( layer ) && boxes[i].Intersects( other->GetBoundingBox() )
+                && geoms[i]->Collide( other->GetEffectiveShape( layer ).get() ) )
+            {
+                groupNets[group[i]].insert( other->GetNet() );
+            }
+        }
+    }
+
+    for( size_t i = 0; i < shapes.size(); i++ )
+    {
+        if( groupNets[group[i]].size() == 1 )
+            shapes[i]->SetNet( *groupNets[group[i]].begin() );
     }
 }
 
@@ -891,6 +1018,13 @@ void PCB_IO_FRITZING::importShapeSvg( const std::string& aSvg, const INSTANCE& a
                     shape->SetWidth( mmToIU( EDGE_WIDTH_MM ) );
             }
 
+            // Ground fills are connected to the net they touch.
+            if( IsCopperLayer( layer ) )
+            {
+                if( NETINFO_ITEM* net = netFor( aInst.modelIndex, wxS( "connector0" ) ) )
+                    shape->SetNet( net );
+            }
+
             placeItem( shape.get(), aView );
             m_board->Add( shape.release(), ADD_MODE::APPEND );
         }
@@ -1049,6 +1183,39 @@ std::unique_ptr<FOOTPRINT> PCB_IO_FRITZING::buildFootprint( const PART& aPart, c
         fp->Add( pad );
     }
 
+    // Fritzing drills every ring in the bottom copper layer, including mounting lugs that are
+    // not connectors.  Add those as unnumbered plated holes.
+    if( aPart.HasPcbLayer( wxS( "copper0" ) ) )
+    {
+        for( const FRITZING_SVG::PAD_PRIMITIVE& prim : svg.GetPrimitives( wxS( "copper0" ) ) )
+        {
+            if( prim.tag != wxS( "circle" ) || prim.strokeWidth <= 0 )
+                continue;
+
+            VECTOR2I pos = VECTOR2I( mmToIU( prim.bounds.GetCenter().x ), mmToIU( prim.bounds.GetCenter().y ) )
+                           - centerIU;
+            bool     isPad = false;
+
+            for( PAD* pad : fp->Pads() )
+                isPad |= ( pad->GetPosition() - pos ).EuclideanNorm() < mmToIU( 0.05 );
+
+            double holeMM = prim.bounds.GetWidth() - prim.strokeWidth;
+            double sizeMM = prim.bounds.GetWidth() + prim.strokeWidth;
+
+            if( isPad || holeMM <= 0 )
+                continue;
+
+            PAD* pad = new PAD( fp.get() );
+            pad->SetShape( PADSTACK::ALL_LAYERS, PAD_SHAPE::CIRCLE );
+            pad->SetSize( PADSTACK::ALL_LAYERS, VECTOR2I( mmToIU( sizeMM ), mmToIU( sizeMM ) ) );
+            pad->SetAttribute( PAD_ATTRIB::PTH );
+            pad->SetDrillSize( VECTOR2I( mmToIU( holeMM ), mmToIU( holeMM ) ) );
+            pad->SetLayerSet( PAD::PTHMask() );
+            pad->SetPosition( pos );
+            fp->Add( pad );
+        }
+    }
+
     static const std::vector<std::pair<wxString, PCB_LAYER_ID>> graphicLayers = {
         { wxS( "silkscreen" ), F_SilkS },
         { wxS( "silkscreen1" ), F_SilkS },
@@ -1124,20 +1291,40 @@ void PCB_IO_FRITZING::importPart( const INSTANCE& aInst, const VIEW& aView )
         return;
     }
 
-    if( !m_libFootprints.count( part->moduleId ) )
+    // Some stock parts, e.g. resistors, choose their footprint from a "pin spacing" property.
+    PART     variant = *part;
+    wxString spacing = aInst.Property( wxS( "pin spacing" ) );
+    wxRegEx  spacingInImage( wxS( "_([0-9]+)mil" ) );
+
+    spacing.Replace( wxS( " " ), wxEmptyString );
+    spacing.Replace( wxS( "mil" ), wxEmptyString );
+
+    if( !spacing.IsEmpty() && spacing.IsNumber() && spacingInImage.Matches( variant.pcbImage ) )
+    {
+        wxString image = variant.pcbImage;
+        spacingInImage.ReplaceFirst( &image, wxS( "_" ) + spacing + wxS( "mil" ) );
+
+        if( image != variant.pcbImage )
+        {
+            variant.pcbImage = image;
+            variant.moduleId += wxS( "_" ) + spacing + wxS( "mil" );
+        }
+    }
+
+    if( !m_libFootprints.count( variant.moduleId ) )
     {
         std::string                svg;
         std::unique_ptr<FOOTPRINT> proto;
         VECTOR2D                   sizePx;
 
-        if( m_library->LoadPcbSvg( *part, svg ) )
-            proto = buildFootprint( *part, svg, sizePx );
+        if( m_library->LoadPcbSvg( variant, svg ) )
+            proto = buildFootprint( variant, svg, sizePx );
 
-        m_libFootprints[part->moduleId] = std::move( proto );
-        m_libSizesPx[part->moduleId] = sizePx;
+        m_libFootprints[variant.moduleId] = std::move( proto );
+        m_libSizesPx[variant.moduleId] = sizePx;
     }
 
-    FOOTPRINT* proto = m_libFootprints[part->moduleId].get();
+    FOOTPRINT* proto = m_libFootprints[variant.moduleId].get();
 
     if( !proto )
     {
@@ -1191,7 +1378,7 @@ void PCB_IO_FRITZING::importPart( const INSTANCE& aInst, const VIEW& aView )
     bool smdOnly = !part->HasPcbLayer( wxS( "copper0" ) );
     bool bottom = aView.bottom || ( smdOnly && aView.layer == wxS( "copper0" ) );
 
-    placeFootprint( fp, aInst, aView, m_libSizesPx[part->moduleId] / 2, bottom );
+    placeFootprint( fp, aInst, aView, m_libSizesPx[variant.moduleId] / 2, bottom );
     m_board->Add( fp, ADD_MODE::APPEND );
 }
 

@@ -6,6 +6,7 @@ set( FRITZING_SRCS
     pcb_io_fritzing.cpp
     fritzing_parser.cpp
     fritzing_part_library.cpp
+    fritzing_generated_parts.cpp
     fritzing_svg.cpp
     )
 

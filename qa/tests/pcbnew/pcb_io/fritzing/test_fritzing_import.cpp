@@ -42,9 +42,7 @@
 #include <pcb_track.h>
 #include <reporter.h>
 
-#include <wx/filefn.h>
 #include <wx/filename.h>
-#include <wx/utils.h>
 
 
 struct FRITZING_IMPORT_FIXTURE
@@ -58,7 +56,8 @@ struct FRITZING_IMPORT_FIXTURE
 
     std::unique_ptr<BOARD> load( bool aWithParts, REPORTER* aReporter = nullptr )
     {
-        std::map<std::string, UTF8> props;
+        // Don't let a Fritzing install on the test machine supply parts
+        std::map<std::string, UTF8> props = { { FRITZING_PART_LIBRARY::SEARCH_DEFAULTS_PROPERTY, "0" } };
 
         if( aWithParts )
             props[FRITZING_PART_LIBRARY::PARTS_PATH_PROPERTY] = path( "fritzing-parts" );
@@ -282,19 +281,10 @@ BOOST_AUTO_TEST_CASE( BoardContents )
 /// Without the parts library, parts still get pads where their traces end, and the user is told.
 BOOST_AUTO_TEST_CASE( MissingPartsLibrary )
 {
-    // Load a copy, away from the parts library kept next to the test sketch
-    wxFileName copy( wxFileName::GetTempDir(), wxEmptyString );
-    copy.AppendDir( wxString::Format( wxS( "qa_fritzing_%lu" ), wxGetProcessId() ) );
-    copy.SetFullName( wxS( "LF-HF-RFID-Detector.fzz" ) );
-    BOOST_REQUIRE( wxFileName::Mkdir( copy.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL ) );
-    BOOST_REQUIRE( wxCopyFile( path( "LF-HF-RFID-Detector.fzz" ), copy.GetFullPath() ) );
-
     WX_STRING_REPORTER     reporter;
     std::unique_ptr<BOARD> board;
 
-    m_plugin.SetReporter( &reporter );
-    BOOST_REQUIRE_NO_THROW( board = m_plugin.LoadBoard( copy.GetFullPath() ) );
-    wxFileName::Rmdir( copy.GetPath(), wxPATH_RMDIR_RECURSIVE );
+    BOOST_REQUIRE_NO_THROW( board = load( false, &reporter ) );
     BOOST_REQUIRE( board );
 
     BOOST_CHECK_EQUAL( board->Footprints().size(), 11 );
@@ -311,15 +301,16 @@ BOOST_AUTO_TEST_CASE( MissingPartsLibrary )
 
 /**
  * A hand-made sketch covering what the RFID board does not: parts bundled in the .fzz, a
- * through-hole part rotated 90 degrees, an SMD part on the bottom, a rectangular board and a
- * schematic ground symbol naming a net.
+ * through-hole part rotated 90 degrees, an SMD part on the bottom, a DIP that Fritzing
+ * generates at runtime, a rectangular board and a schematic ground symbol naming a net.
  */
 BOOST_AUTO_TEST_CASE( SyntheticSketch )
 {
     WX_STRING_REPORTER reporter;
     m_plugin.SetReporter( &reporter );
 
-    std::unique_ptr<BOARD> board = m_plugin.LoadBoard( path( "synthetic.fzz" ) );
+    std::map<std::string, UTF8> props = { { FRITZING_PART_LIBRARY::SEARCH_DEFAULTS_PROPERTY, "0" } };
+    std::unique_ptr<BOARD>      board = m_plugin.LoadBoard( path( "synthetic.fzz" ), &props );
     BOOST_REQUIRE( board );
     BOOST_CHECK( !reporter.GetMessages().Contains( wxS( "not found" ) ) );
 
@@ -377,6 +368,18 @@ BOOST_AUTO_TEST_CASE( SyntheticSketch )
     BOOST_CHECK_EQUAL( pinA->GetNetname(), wxS( "Net-(SMD1-Pad1)" ) );
     BOOST_CHECK_EQUAL( smdPad->GetNetname(), wxS( "Net-(SMD1-Pad1)" ) );
     BOOST_CHECK_EQUAL( pinB->GetNetname(), wxS( "GND" ) );
+
+    // Fritzing generates DIP footprints from the module id; pin 1 is top-left, numbered
+    // counter-clockwise, on a 300 mil row spacing
+    FOOTPRINT* dip = board->FindFootprintByReference( "U1" );
+    BOOST_REQUIRE( dip );
+    BOOST_CHECK_EQUAL( dip->Pads().size(), 8 );
+    BOOST_CHECK_SMALL( ( mm( dip->GetPosition() ) - VECTOR2D( 36.380, 22.268 ) ).EuclideanNorm(), 0.01 );
+    BOOST_CHECK_SMALL( ( mm( dip->FindPadByNumber( "1" )->GetPosition() ) - VECTOR2D( 32.570, 18.458 ) ).EuclideanNorm(),
+                       0.01 );
+    BOOST_CHECK_SMALL( ( mm( dip->FindPadByNumber( "8" )->GetPosition() ) - VECTOR2D( 40.190, 18.458 ) ).EuclideanNorm(),
+                       0.01 );
+    BOOST_CHECK_CLOSE( pcbIUScale.IUTomm( dip->FindPadByNumber( "1" )->GetDrillSize().x ), 0.889, 0.5 );
 
     BOOST_REQUIRE_EQUAL( board->Tracks().size(), 1 );
     BOOST_CHECK_EQUAL( board->Tracks().front()->GetNetname(), wxS( "Net-(SMD1-Pad1)" ) );
