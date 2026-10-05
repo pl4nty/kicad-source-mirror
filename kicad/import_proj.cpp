@@ -754,6 +754,15 @@ void IMPORT_PROJ_HELPER::ImportFiles( int aImportedSchFileType, int aImportedPcb
     int importedSchFileType = aImportedSchFileType;
     int importedPcbFileType = aImportedPcbFileType;
 
+    // The sketch is copied into the new project, so point the importer back at a parts
+    // library kept next to the original.
+    if( importedPcbFileType == PCB_IO_MGR::FRITZING )
+    {
+        wxFileName partsDir( m_InputFile.GetPath(), wxEmptyString );
+        partsDir.AppendDir( wxS( "fritzing-parts" ) );
+        m_properties["fritzing_parts_path"] = partsDir.GetPath().ToStdString();
+    }
+
     if( importedSchFileType == SCH_IO_MGR::SCH_EASYEDAPRO || importedSchFileType == SCH_IO_MGR::SCH_EASYEDAPRO_V3
         || importedPcbFileType == PCB_IO_MGR::EASYEDAPRO || importedPcbFileType == PCB_IO_MGR::EASYEDAPRO_V3 )
     {

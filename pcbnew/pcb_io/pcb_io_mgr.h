@@ -73,6 +73,7 @@ public:
         DIPTRACE,
         AUTOTRAX,
         PADS_BINARY,
+        FRITZING,
         // add your type here.
 
         // etc.

@@ -50,6 +50,7 @@
 #include <pcb_io/sprint_layout/pcb_io_sprint_layout.h>
 #include <pcb_io/diptrace/pcb_io_diptrace.h>
 #include <pcb_io/autotrax/pcb_io_autotrax.h>
+#include <pcb_io/fritzing/pcb_io_fritzing.h>
 #include <pcb_io/pads/pcb_io_pads_binary.h>
 #include <reporter.h>
 #include <libraries/library_table_parser.h>
@@ -141,6 +142,7 @@ bool PCB_IO_MGR::ImportGeneratesProjectLibrary( PCB_FILE_T aFileType )
     case ALTIUM_CIRCUIT_MAKER:
     case ALTIUM_CIRCUIT_STUDIO:
     case ALLEGRO:
+    case FRITZING:
         return true;
 
     default:
@@ -433,4 +435,9 @@ static PCB_IO_MGR::REGISTER_PLUGIN registerPadsBinaryPlugin(
         PCB_IO_MGR::PADS_BINARY,
         wxT( "PADS Binary" ),
         []() -> PCB_IO* { return new PCB_IO_PADS_BINARY(); } );
+
+static PCB_IO_MGR::REGISTER_PLUGIN registerFritzingPlugin(
+        PCB_IO_MGR::FRITZING,
+        wxT( "Fritzing" ),
+        []() -> PCB_IO* { return new PCB_IO_FRITZING; } );
 // clang-format on

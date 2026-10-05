@@ -139,6 +139,11 @@ public:
     void OnImportDipTraceFiles( wxCommandEvent& event );
 
     /**
+     *  Open dialog to import a Fritzing sketch's PCB.
+     */
+    void OnImportFritzingFiles( wxCommandEvent& event );
+
+    /**
      *  Open dialog to import an OrCAD schematic file.
      */
     void OnImportOrcadFiles( wxCommandEvent& event );

@@ -363,6 +363,12 @@ wxString FILEEXT::DipTraceFilesWildcard()
 }
 
 
+wxString FILEEXT::FritzingFilesWildcard()
+{
+    return _( "Fritzing sketch files" ) + AddFileExtListToFilter( { "fzz", "fz" } );
+}
+
+
 wxString FILEEXT::OrCadSchematicFilesWildcard()
 {
     return _( "OrCAD Capture schematic files" ) + AddFileExtListToFilter( { "dsn" } );
