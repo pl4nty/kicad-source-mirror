@@ -41,6 +41,7 @@
 #include <pcb_text.h>
 #include <pcb_track.h>
 #include <reporter.h>
+#include <geometry/shape.h>
 
 #include <wx/filename.h>
 
@@ -215,7 +216,8 @@ BOOST_AUTO_TEST_CASE( BoardContents )
             unconnectedTraces++;
     }
 
-    BOOST_CHECK_EQUAL( frontTraces, 29 );
+    // 29 front wires, two of them curved and so split into several segments
+    BOOST_CHECK_GT( frontTraces, 29 );
     BOOST_CHECK_EQUAL( backTraces, 2 );
     BOOST_CHECK_EQUAL( unconnectedTraces, 0 );
 
@@ -225,6 +227,18 @@ BOOST_AUTO_TEST_CASE( BoardContents )
     BOOST_CHECK_GT( c1->FindPadByNumber( "1" )->GetNetCode(), 0 );
     BOOST_CHECK_GT( c1->FindPadByNumber( "2" )->GetNetCode(), 0 );
     BOOST_CHECK_NE( c1->FindPadByNumber( "1" )->GetNetCode(), c1->FindPadByNumber( "2" )->GetNetCode() );
+
+    // The two curved traces from C1 pad 1 bend around pad 2; drawn straight they would cut
+    // across its corners.
+    PAD* c1Pad2 = c1->FindPadByNumber( "2" );
+
+    for( PCB_TRACK* track : board->Tracks() )
+    {
+        if( track->Type() == PCB_TRACE_T && track->GetNetCode() == c1->FindPadByNumber( "1" )->GetNetCode() )
+        {
+            BOOST_CHECK( !track->GetEffectiveShape( F_Cu )->Collide( c1Pad2->GetEffectiveShape( F_Cu ).get() ) );
+        }
+    }
 
     // The credit-card outline: 85.6 x 53.98 mm with rounded corners
     BOX2I outline;

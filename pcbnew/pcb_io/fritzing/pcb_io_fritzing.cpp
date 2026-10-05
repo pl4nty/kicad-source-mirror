@@ -752,22 +752,52 @@ void PCB_IO_FRITZING::importTrace( const INSTANCE& aInst, const VIEW& aView )
     if( !IsCopperLayer( layer ) )
         return;
 
-    VECTOR2I start = toBoard( scenePoint( aView, aView.lineStart ) );
-    VECTOR2I end = toBoard( scenePoint( aView, aView.lineEnd ) );
+    // KiCad tracks are straight, so follow a curved Fritzing trace with short segments.
+    std::vector<VECTOR2D> points = { aView.lineStart };
 
-    if( start == end )
-        return;
+    if( aView.curved )
+    {
+        const VECTOR2D& p0 = aView.lineStart;
+        const VECTOR2D& p1 = aView.bezierCp0;
+        const VECTOR2D& p2 = aView.bezierCp1;
+        const VECTOR2D& p3 = aView.lineEnd;
 
-    PCB_TRACK* track = new PCB_TRACK( m_board );
-    track->SetStart( start );
-    track->SetEnd( end );
-    track->SetLayer( layer );
-    track->SetWidth( std::max( 1, KiROUND( pcbIUScale.MilsToIU( aView.wireMils ) ) ) );
+        double hull = ( p1 - p0 ).EuclideanNorm() + ( p2 - p1 ).EuclideanNorm() + ( p3 - p2 ).EuclideanNorm();
+        int    count = std::clamp( KiROUND( hull / 2.0 ), 4, 64 );   // about one per 0.6 mm
 
-    if( NETINFO_ITEM* net = netFor( aInst.modelIndex, wxS( "connector0" ) ) )
-        track->SetNet( net );
+        for( int i = 1; i < count; i++ )
+        {
+            double t = static_cast<double>( i ) / count;
+            double u = 1.0 - t;
 
-    m_board->Add( track, ADD_MODE::APPEND );
+            points.push_back( p0 * ( u * u * u ) + p1 * ( 3 * u * u * t ) + p2 * ( 3 * u * t * t )
+                              + p3 * ( t * t * t ) );
+        }
+    }
+
+    points.push_back( aView.lineEnd );
+
+    NETINFO_ITEM* net = netFor( aInst.modelIndex, wxS( "connector0" ) );
+
+    for( size_t i = 1; i < points.size(); i++ )
+    {
+        VECTOR2I start = toBoard( scenePoint( aView, points[i - 1] ) );
+        VECTOR2I end = toBoard( scenePoint( aView, points[i] ) );
+
+        if( start == end )
+            continue;
+
+        PCB_TRACK* track = new PCB_TRACK( m_board );
+        track->SetStart( start );
+        track->SetEnd( end );
+        track->SetLayer( layer );
+        track->SetWidth( std::max( 1, KiROUND( pcbIUScale.MilsToIU( aView.wireMils ) ) ) );
+
+        if( net )
+            track->SetNet( net );
+
+        m_board->Add( track, ADD_MODE::APPEND );
+    }
 }
 
 

@@ -104,6 +104,9 @@ struct VIEW
     VECTOR2D  lineEnd;
     int       wireFlags = 0;
     double    wireMils = 0.0;      ///< Wire / trace width.
+    bool      curved = false;      ///< The wire is a cubic Bezier from lineStart to lineEnd.
+    VECTOR2D  bezierCp0;           ///< Bezier control points, relative to pos.
+    VECTOR2D  bezierCp1;
 
     // Part label.
     bool      titleVisible = false;

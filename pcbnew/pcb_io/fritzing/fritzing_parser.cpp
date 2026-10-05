@@ -326,7 +326,21 @@ void FRITZING_PARSER::parseView( wxXmlNode* aNode, VIEW& aView )
     }
 
     if( wxXmlNode* extras = findChild( aNode, wxS( "wireExtras" ) ) )
+    {
         aView.wireMils = attrDouble( extras, wxS( "mils" ) );
+
+        // Curved wires and traces carry their control points here.
+        wxXmlNode* bezier = findChild( extras, wxS( "bezier" ) );
+        wxXmlNode* cp0 = bezier ? findChild( bezier, wxS( "cp0" ) ) : nullptr;
+        wxXmlNode* cp1 = bezier ? findChild( bezier, wxS( "cp1" ) ) : nullptr;
+
+        if( cp0 && cp1 )
+        {
+            aView.curved = true;
+            aView.bezierCp0 = VECTOR2D( attrDouble( cp0, wxS( "x" ) ), attrDouble( cp0, wxS( "y" ) ) );
+            aView.bezierCp1 = VECTOR2D( attrDouble( cp1, wxS( "x" ) ), attrDouble( cp1, wxS( "y" ) ) );
+        }
+    }
 
     if( wxXmlNode* title = findChild( aNode, wxS( "titleGeometry" ) ) )
     {
