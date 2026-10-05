@@ -281,6 +281,8 @@ set( QA_PCBNEW_SRCS
 
     pcb_io/autotrax/test_autotrax_import.cpp
 
+    pcb_io/fritzing/test_fritzing_import.cpp
+
     pcb_io/fabmaster/test_fabmaster_import.cpp
 
     pcb_io/allegro/allegro_test_utils.cpp

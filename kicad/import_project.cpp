@@ -242,6 +242,15 @@ void KICAD_MANAGER_FRAME::OnImportDipTraceFiles( wxCommandEvent& event )
 }
 
 
+void KICAD_MANAGER_FRAME::OnImportFritzingFiles( wxCommandEvent& event )
+{
+    // Only the PCB view of a sketch is imported
+    ImportNonKiCadProject( _( "Import Fritzing Sketch" ),
+                           FILEEXT::FritzingFilesWildcard(), {}, { "INPUT" },
+                           SCH_IO_MGR::SCH_FILE_UNKNOWN, PCB_IO_MGR::FRITZING );
+}
+
+
 void KICAD_MANAGER_FRAME::OnImportOrcadFiles( wxCommandEvent& event )
 {
     // OrCAD handler imports .dsn schematic then offers associated Allegro board, so no

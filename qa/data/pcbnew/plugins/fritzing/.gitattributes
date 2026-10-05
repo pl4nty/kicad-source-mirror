@@ -1,0 +1,3 @@
+*.fzz binary
+*.fzp -text
+*.svg -text
