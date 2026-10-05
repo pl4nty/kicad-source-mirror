@@ -42,7 +42,9 @@
 #include <pcb_track.h>
 #include <reporter.h>
 
+#include <wx/filefn.h>
 #include <wx/filename.h>
+#include <wx/utils.h>
 
 
 struct FRITZING_IMPORT_FIXTURE
@@ -280,8 +282,19 @@ BOOST_AUTO_TEST_CASE( BoardContents )
 /// Without the parts library, parts still get pads where their traces end, and the user is told.
 BOOST_AUTO_TEST_CASE( MissingPartsLibrary )
 {
+    // Load a copy, away from the parts library kept next to the test sketch
+    wxFileName copy( wxFileName::GetTempDir(), wxEmptyString );
+    copy.AppendDir( wxString::Format( wxS( "qa_fritzing_%lu" ), wxGetProcessId() ) );
+    copy.SetFullName( wxS( "LF-HF-RFID-Detector.fzz" ) );
+    BOOST_REQUIRE( wxFileName::Mkdir( copy.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL ) );
+    BOOST_REQUIRE( wxCopyFile( path( "LF-HF-RFID-Detector.fzz" ), copy.GetFullPath() ) );
+
     WX_STRING_REPORTER     reporter;
-    std::unique_ptr<BOARD> board = load( false, &reporter );
+    std::unique_ptr<BOARD> board;
+
+    m_plugin.SetReporter( &reporter );
+    BOOST_REQUIRE_NO_THROW( board = m_plugin.LoadBoard( copy.GetFullPath() ) );
+    wxFileName::Rmdir( copy.GetPath(), wxPATH_RMDIR_RECURSIVE );
     BOOST_REQUIRE( board );
 
     BOOST_CHECK_EQUAL( board->Footprints().size(), 11 );
