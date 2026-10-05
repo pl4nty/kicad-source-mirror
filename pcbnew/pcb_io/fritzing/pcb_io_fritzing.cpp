@@ -964,11 +964,23 @@ std::vector<std::unique_ptr<PCB_SHAPE>> PCB_IO_FRITZING::svgToShapes( const std:
 
     for( std::unique_ptr<EDA_ITEM>& item : importer.GetItems() )
     {
-        if( PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( item.get() ) )
-        {
-            item.release();
-            result.emplace_back( shape );
-        }
+        PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( item.get() );
+
+        if( !shape )
+            continue;
+
+        // SVG elements are filled black by default, so nanosvg reports an outline-only line as
+        // filled too; that comes back as a duplicate, invisible zero-width copy.
+        if( !shape->IsSolidFill() && shape->GetWidth() <= 0 && aLayer != Edge_Cuts )
+            continue;
+
+        // Board items take their colour from the layer, not from the SVG.
+        STROKE_PARAMS stroke = shape->GetStroke();
+        stroke.SetColor( COLOR4D::UNSPECIFIED );
+        shape->SetStroke( stroke );
+
+        item.release();
+        result.emplace_back( shape );
     }
 
     return result;
